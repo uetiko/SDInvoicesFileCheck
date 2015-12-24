@@ -17,8 +17,12 @@ class Invoice extends \utils\abstracts\AbstractClass{
     private $listDocuments = null;
     /** @var string $xml_path */
     private $xml_path = null;
+    /** @var array $sources */
+    private  $sources = null;
 
     public function __construct(){
+        $this->sources = \Symfony\Component\Yaml\Yaml::parse(file_get_contents(realpath(__DIR__ . "/../resources/sources.yml")));
+        $this->xml_path = $this->sources['path']['invoice']['xml'];
         parent::eloquent();
         $this->cnn = new \utils\abstracts\Connection();
     }
@@ -114,7 +118,7 @@ class Invoice extends \utils\abstracts\AbstractClass{
         /** @var \ArrayObject $data */
         $data = $this->listDocuments['noexist'];
         try{
-            \helper\FileSystemHelper::getSimpleCVSNoArray('InvoicesNoMach', $data);
+            \helper\FileSystemHelper::CVSFromArray('InvoicesNoMach', $data->getArrayCopy());
             $message = "\033[24m Se ha creado el archivo \033[35m InvoicesNoMach.csv \033[34m en {$dir}";
         }catch (\Exception $e){
             error_log($e->getMessage(),0);
@@ -173,14 +177,13 @@ class Invoice extends \utils\abstracts\AbstractClass{
         };
         $getUuid = function($fileName){
             $uuid = null;
-            if(preg_match("/^[a-zA-Z]{4}\d{6}\w{3}/", substr($string,14))){
-                $uuid = substr($string,28, 36);
+            if(preg_match("/^[a-zA-Z]{4}\d{6}\w{3}/", substr($fileName,14))){
+                $uuid = substr($fileName,28, 36);
             }else{
-                $uuid = substr($string,27, 36);
+                $uuid = substr($fileName,27, 36);
             }
             return $uuid;
         };
-
         $dirList = $list->getIterator();
         while($dirList->valid()){
             $bool = false;
@@ -198,7 +201,7 @@ class Invoice extends \utils\abstracts\AbstractClass{
                 }
                 $iterator->next();
             }
-            if(!$bool){
+            if(!$bool && '.' !== $file && '..' !== $file){
                 echo "\033[35m este xml no se encontro en la base de datos\n\033[31m {$file}\n";
                 $noExist->append([
                     'xml' => $file,
@@ -207,8 +210,6 @@ class Invoice extends \utils\abstracts\AbstractClass{
             }
             $dirList->next();
         }
-
-
         echo "\033[35m All relation are created\n";
         return [
             'exist' => $exist,
@@ -216,22 +217,61 @@ class Invoice extends \utils\abstracts\AbstractClass{
         ];
     }
 
-    public function getNoMatchAmount(){}
+    public function getNoMatchAmount(){
+        $sumTotal = 0;
+        $sumSubTotal = 0;
+        $datos = [];
+        $message = null;
+        /** @var \ArrayObject $files */
+        $files = $this->listDocuments['noexist'];
+        $filesIterator = $files->getIterator();
+        $count = 0;
+        echo "\033[33m Procesando: \033[31m {$filesIterator->count()}";
+        while($filesIterator->valid()){
+            $data = $filesIterator->current();
+            $invoice = new \dto\Invoice();
+            $xml  = new SimpleXMLElement(file_get_contents("{$this->xml_path}{$data['xml']}"));
+            $datos[] = [
+                'xml' => $data['xml'],
+                'uuid' => $data['uuid'],
+                'subtotal' => (string)$xml['subTotal'],
+                'tota' => (string)$xml['total'],
+                'fecha' => (string)$xml['fecha'],
+                'suma subtotal' => '',
+                'suma total' => ''
+            ];
+            $sumSubTotal += (float)$xml['subTotal'];
+            $sumTotal += (float)$xml['total'];
+            echo "\033[34m Total: \033[35m {$sumTotal}\n";
+            $xml = null;
+            $count++;
+            $filesIterator->next();
+        }
+        $datos[] = [
+            'xml' => '',
+            'uuid' => '',
+            'subtotal' => '',
+            'tota' => '',
+            'fecha' => '',
+            'suma subtotal' => $sumSubTotal,
+            'suma total' =>$sumTotal
+        ];
+        try {
+            \helper\FileSystemHelper::CVSFromArray('no_match_totales', $datos);
+            $message = "\033[34m Se ha creado el archivo no_match_totales.csv\n";
+        }catch (\Exception $e){
+            $message = "\033[31m {$e->getMessage()}\n";
+        }
+        return $message;
+    }
     public function test(){
         \helper\FileSystemHelper::createCVS('test', $this->listDTO());
     }
 }
 
 $invoice = new Invoice();
-/*
-$invoice->getAllDatabaseInvoices();
-$invoice->listDTO();
-echo "{$invoice->createCSVFromAllFiles()}\n";
-echo "{$invoice->createCVS()}\n";
-$invoice->processingRelationFromFS();
-echo "{$invoice->createCVSReport()}\n";
-echo "{$invoice->createCSVReportInvoiceNoMach()}\n";
-*/
+$argv[1] = '--all';
+
 switch($argv[1]){
     case '--file-database':
         $invoice->getAllDatabaseInvoices();
@@ -253,6 +293,7 @@ switch($argv[1]){
         $invoice->processingRelationFromFS();
         echo "{$invoice->createCVSReport()}\n";
         echo "{$invoice->createCSVReportInvoiceNoMach()}\n";
+        echo $invoice->getNoMatchAmount();
         break;
     case '--no-mach':
         $invoice->getAllDatabaseInvoices();
@@ -261,6 +302,10 @@ switch($argv[1]){
         echo "{$invoice->createCSVReportInvoiceNoMach()}\n";
         break;
     case '--no-mach-amount':
+        $invoice->getAllDatabaseInvoices();
+        $invoice->listDTO();
+        $invoice->processingRelationFromFS();
+        echo $invoice->getNoMatchAmount();
         break;
     case '--help':
     default;
@@ -269,6 +314,7 @@ switch($argv[1]){
         echo "\033[32m --only-document-exist\033[33m    Crea un archivo que crea solo las facturas del sistema que tienen su correspondiente con un xml físicos\n";
         echo "\033[32m --all\033[33m                    Corre todas las tareas del script\n";
         echo "\033[32m --no-mach\033[33m                Crea un archivo que de aquellos xml que no encuentra relación con la base de datos.\n";
+        echo "\033[32m --no-mach-amount\033[33m         Lee los xml que no se encuentran en sistema para poder sacar el monto total de estos.\n";
         echo "\033[32m \033[33m                         \n";
         break;
 }

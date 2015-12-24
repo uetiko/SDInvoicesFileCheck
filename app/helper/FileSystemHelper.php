@@ -129,4 +129,32 @@ class FileSystemHelper {
         $bool = fclose($handle);
         return $bool;
     }
+
+    final static function CVSFromArray($cvsName,  array $list){
+        $create = false;
+        $content = null;
+        $headers = function(array $data){
+            $head = new \ArrayObject();
+            foreach($data as $k => $v){
+                $head->append($k);
+            }
+            return $head->getArrayCopy();
+        };
+        try {
+            $handle = fopen("{$cvsName}.csv", 'w+');
+            if(false != $handle) {
+                fputcsv($handle, $headers($list[0]));
+                /** @var \ArrayObject $list */
+                foreach ($list as $row) {
+                    /** @var \dto\Invoice $invoice */
+                    fputcsv($handle, $row);
+                }
+            }else{
+                throw new \Exception("\033[31m No se ha podido crear el Handle del csv {$cvsName}.");
+            }
+            fclose($handle);
+        }catch (\Exception $e){
+            echo $e->getMessage();
+        }
+    }
 }

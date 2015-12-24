@@ -3,6 +3,11 @@ namespace utils\abstracts;
 use Symfony\Component\Yaml\Yaml;
 use PDO;
 
+/**
+ * Class Connection
+ * @package utils\abstracts
+ * @author Angel Barrientos <>
+ */
 class Connection extends PDO{
     private $engine = null;
     private $host = null;
